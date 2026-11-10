@@ -373,7 +373,7 @@ const wr=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
 const esc=s=>s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const $=id=>document.getElementById(id);
 const shuffle=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
-const S=Object.assign({sets:["l1"],kind:"w",pool:"all",mode:"card",front:"h",ask:"h",ans:"p",wfront:"h",tone:true},rd(LS+":s",{}));
+const S=Object.assign({sets:["l1"],kind:"w",pool:"all",mode:"card",front:"h",ask:"h",ans:"p",wfront:"h",tone:true,auto:true},rd(LS+":s",{}));
 let P=rd(LS+":p",{});
 const ALL=new Map();
 SETS.forEach(st=>{[["w",st.w],["s",st.s]].forEach(([kind,txt])=>{txt.split("\n").filter(Boolean).forEach(l=>{const [h,p,m]=l.split("|"),key=h+"|"+p;
@@ -409,7 +409,7 @@ function renderHead(){
  $("tabs").innerHTML=T.map(([v,t])=>`<button role="tab" data-v="${v}" aria-selected="${v===S.mode}">${t}</button>`).join("");
  $("tabs").onclick=e=>{const b=e.target.closest("button");if(b)setS("mode",b.dataset.v)};
  const d=$("dir");
- if(S.mode==="card"){d.innerHTML=`<div class="opt"><span class="lbl">먼저 볼 것</span><div class="seg" id="o1"></div></div>`;seg("o1",[["h","한자"],["p","병음"],["m","뜻"]],S.front,v=>setS("front",v))}
+ if(S.mode==="card"){d.innerHTML=`<div class="opt"><span class="lbl">먼저 볼 것</span><div class="seg" id="o1"></div></div>`;seg("o1",[["h","한자"],["p","병음"],["m","뜻"]],S.front,v=>setS("front",v));d.insertAdjacentHTML("beforeend",`<div class="opt"><span class="lbl">자동 발음</span><div class="seg" id="o2"></div></div>`);seg("o2",[["on","켜기"],["off","끄기"]],S.auto?"on":"off",v=>setS("auto",v==="on"))}
  else if(S.mode==="quiz"){const ans=["h","p","m"].filter(x=>x!==S.ask);d.innerHTML=`<div class="opt"><span class="lbl">문제</span><div class="seg" id="o1"></div></div><div class="opt"><span class="lbl">정답</span><div class="seg" id="o2"></div></div>`;seg("o1",[["h","한자"],["p","병음"],["m","뜻"]],S.ask,v=>{S.ask=v;if(S.ans===v)S.ans=v==="p"?"m":"p";setS("ask",v)});seg("o2",ans.map(x=>[x,F[x]]),S.ans,v=>setS("ans",v))}
  else if(S.mode==="write"){d.innerHTML=`<div class="opt"><span class="lbl">문제</span><div class="seg" id="o1"></div></div><div class="opt"><span class="lbl">성조 채점</span><div class="seg" id="o2"></div></div>`;seg("o1",[["h","한자"],["m","뜻"]],S.wfront,v=>setS("wfront",v));seg("o2",[["on","켜기"],["off","끄기"]],S.tone?"on":"off",v=>setS("tone",v==="on"))}
  else d.innerHTML=`<input class="search" id="q" placeholder="한자, 병음(성조 없이), 뜻으로 찾기" aria-label="단어 찾기">`;
@@ -421,6 +421,11 @@ function emptyMsg(){if(hanMode()&&!activeSets().length)return"병음 단어연�
 function makeOpts(it){const f=S.ans;const same=items.filter(o=>(!hanMode()||hasHan(o))&&o.kind===it.kind&&o.key!==it.key&&o[f]!==it[f]&&o.m!==it.m&&o.h!==it.h);const near=shuffle(same).sort((a,b)=>Math.abs(a[f].length-it[f].length)-Math.abs(b[f].length-it[f].length)).slice(0,14);const seen=new Set([it[f]]),out=[it];for(const o of shuffle(near)){if(out.length===4)break;if(!seen.has(o[f])){seen.add(o[f]);out.push(o)}}return shuffle(out)}
 const cls={h:"h",p:"p",m:"m"};
 const optTxt=(o,f)=>`<span class="${cls[f]}"${f==="h"?' lang="zh-Hans"':""}>${f==="p"?tone(o.p):esc(o[f])}</span>`;
+let unlocked=false;
+function autoSay(){if(!S.auto||!unlocked||S.mode!=="card"||!run||run.i>=run.deck.length)return;const want=S.front==="m"?run.shown:!run.shown;if(!want)return;const tag=run.i+":"+run.shown+":"+run.deck[run.i].key;if(run.spoke===tag)return;run.spoke=tag;say(run.deck[run.i].h)}
+const unlock=()=>{if(unlocked)return;unlocked=true;const h=document.querySelector(".hint");if(h&&S.mode==="card")h.textContent=h.textContent.replace("화면을 한 번 누르면 발음이 나오기 시작합니다 · ","")};
+document.addEventListener("pointerdown",unlock,true);document.addEventListener("keydown",unlock,true);
+document.addEventListener("click",()=>autoSay());document.addEventListener("keyup",()=>autoSay());
 function render(){renderHead();const st=$("stage");
  if(S.mode==="list")return renderList();
  if(!run.deck.length){st.innerHTML=`<p class="empty">${emptyMsg()}</p>${hanMode()&&!activeSets().length?`<div class="acts"><button class="btn pri" data-a="nohan">병음과 뜻으로 공부하기</button></div>`:""}`;return}
@@ -428,7 +433,7 @@ function render(){renderHead();const st=$("stage");
  const it=run.deck[run.i];
  if(S.mode==="card"){const order=[S.front,...["h","p","m"].filter(x=>x!==S.front&&(x!=="h"||hasHan(it)))];
   st.innerHTML=topBar(sayBtn)+`<div class="face tap" data-a="flip">${order.map((f,i)=>i===0||run.shown?big(it,f):`<div class="veil">${F[f]}</div>`).join("")}</div>`+
-  (run.shown?`<div class="acts"><button class="btn mini" data-a="prev">이전</button><button class="btn no" data-a="no">다시 볼래요</button><button class="btn good" data-a="yes">외웠어요</button></div>`:`<div class="acts"><button class="btn mini" data-a="prev">이전</button><button class="btn pri" data-a="flip">정답 보기</button></div>`)+`<div class="hint">스페이스: 정답 보기 · → 외웠어요 · ← 다시 볼래요</div>`}
+  (run.shown?`<div class="acts"><button class="btn mini" data-a="prev">이전</button><button class="btn no" data-a="no">다시 볼래요</button><button class="btn good" data-a="yes">외웠어요</button></div>`:`<div class="acts"><button class="btn mini" data-a="prev">이전</button><button class="btn pri" data-a="flip">정답 보기</button></div>`)+`<div class="hint">${S.auto&&!unlocked?"화면을 한 번 누르면 발음이 나오기 시작합니다 · ":""}스페이스: 정답 보기 · → 외웠어요 · ← 다시 볼래요</div>`;autoSay()}
  if(S.mode==="quiz"){run.opts=run.opts||makeOpts(it);const done=run.pick!==null;
   const canSay=done||S.ask!=="m";
   st.innerHTML=topBar(canSay?sayBtn:"")+`<div class="face">${big(it,S.ask)}</div><div class="opts">${run.opts.map((o,i)=>`<button class="choice ${done&&o.key===it.key?"right":""} ${done&&run.pick===i&&o.key!==it.key?"wrong":""}" data-a="pick" data-i="${i}" ${done?"disabled":""}>${optTxt(o,S.ans)}</button>`).join("")}</div>`+
