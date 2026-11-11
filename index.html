@@ -105,6 +105,11 @@ td.cov{cursor:pointer;color:transparent;background:var(--soft)}td.cov *{color:tr
 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;border:1.5px solid var(--line)}
 .dot.ok{background:var(--ok);border-color:var(--ok)}.dot.no{background:var(--bad);border-color:var(--bad)}
 .play{padding:3px 6px;color:var(--accent);font-size:13px}
+.chunks{display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:6px}
+.chunk{display:grid;gap:1px;justify-items:center;padding:6px 4px;border:1px solid var(--line);border-radius:3px;font-size:14px;font-variant-numeric:tabular-nums}
+.chunk small{font-size:11.5px;color:var(--mute)}
+.chunk[aria-pressed="true"]{background:var(--sheet);border-color:var(--accent);font-weight:600}
+.chunk.done small{color:var(--ok)}
 .empty{margin:auto;text-align:center;color:var(--mute);max-width:36ch}
 @media (max-width:780px){.wrap{grid-template-columns:minmax(0,1fr);gap:18px;padding-block:18px 36px}.side{gap:12px}.sets{grid-template-columns:repeat(2,minmax(0,1fr))}.set{padding:7px 8px;font-size:14px}.set .note{display:none}.rowopts{display:flex;flex-wrap:wrap;gap:12px}.sheet{min-height:400px}.tabs button{padding:8px 12px}}
 @media (max-width:420px){.opts{grid-template-columns:minmax(0,1fr)}.choice{min-height:54px}.missed div{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.missed div span:last-child{grid-column:1/-1;color:var(--mute)}}
@@ -117,6 +122,7 @@ td.cov{cursor:pointer;color:transparent;background:var(--soft)}td.cov *{color:tr
 <div class="group"><div class="lbl">종류</div><div class="seg" id="kind"></div></div>
 <div class="group"><div class="lbl">골라 보기</div><div class="seg" id="pool"></div></div>
 </div>
+<div class="group"><div class="lbl">암기 구간</div><div class="seg" id="csize"></div><div class="chunks" id="chunks" hidden></div></div>
 <div class="foot"><span id="sync">진도를 이 기기에 저장합니다.</span><button class="link" id="reset">진도 초기화</button></div>
 </aside>
 <main class="main">
@@ -346,7 +352,7 @@ const wr=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
 const esc=s=>s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const $=id=>document.getElementById(id);
 const shuffle=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
-const S=Object.assign({sets:["l1"],kind:"w",pool:"all",mode:"card",front:"h",ask:"h",ans:"p",wfront:"h",tone:true,auto:true},rd(LS+":s",{}));
+const S=Object.assign({sets:["l1"],kind:"w",pool:"all",mode:"card",front:"h",ask:"h",ans:"p",wfront:"h",tone:true,auto:true,csize:0,chunk:0},rd(LS+":s",{}));
 let P=rd(LS+":p",{});
 const ALL=new Map();
 SETS.forEach(st=>{[["w",st.w],["s",st.s]].forEach(([kind,txt])=>{txt.split("\n").filter(Boolean).forEach(l=>{const [h,p,m]=l.split("|"),key=h+"|"+p;
@@ -359,7 +365,11 @@ function parsePy(s){s=s.normalize("NFC").toLowerCase().replace(/u:/g,"ü").repla
 function gradePy(inp,target,useTone){const a=parsePy(inp),b=parsePy(target);if(!useTone)return a.L.replace(/ü/g,"u")===b.L.replace(/ü/g,"u");return a.L===b.L&&a.T.join()===b.T.join()}
 const status=it=>{const x=P[it.key];return x?x.l:undefined};
 const NOHAN=["py","me"];const hasHan=it=>it.sets.some(s=>!NOHAN.includes(s));const hanMode=()=>(S.mode==="card"&&S.front==="h")||(S.mode==="quiz"&&(S.ask==="h"||S.ans==="h"))||(S.mode==="write"&&S.wfront==="h");const activeSets=()=>hanMode()?S.sets.filter(s=>!NOHAN.includes(s)):S.sets;
-function selected(){const A=activeSets();return items.filter(it=>it.sets.some(s=>A.includes(s))&&(S.kind==="a"||it.kind===S.kind)&&(S.pool==="all"||(S.pool==="todo"&&status(it)!==1)||(S.pool==="miss"&&status(it)===0)))}
+function baseList(){const A=activeSets();return items.filter(it=>it.sets.some(s=>A.includes(s))&&(S.kind==="a"||it.kind===S.kind))}
+function chunks(){const b=baseList(),n=+S.csize||0;if(!n||b.length<=n)return[b];const out=[];for(let i=0;i<b.length;i+=n)out.push(b.slice(i,i+n));if(out.length>1&&out[out.length-1].length<n/2){const last=out.pop();out[out.length-1]=out[out.length-1].concat(last)}return out}
+const inPool=it=>S.pool==="all"||(S.pool==="todo"&&status(it)!==1)||(S.pool==="miss"&&status(it)===0);
+function current(){const c=chunks();if(!(S.chunk<c.length))S.chunk=0;return c[S.chunk]||[]}
+function selected(){return current().filter(inPool)}
 let run;
 function start(list){run={deck:list||shuffle(selected()),i:0,shown:false,pick:null,opts:null,val:"",res:{}};render()}
 function mark(it,ok){const o=P[it.key]||{r:0,x:0};o.l=ok?1:0;ok?o.r++:o.x++;o.t=Date.now();P[it.key]=o;saveP()}
@@ -372,10 +382,14 @@ const seg=(id,arr,cur,fn)=>{const e=$(id);e.innerHTML=arr.map(([v,t])=>`<button 
 const setS=(k,v)=>{S[k]=v;wr(LS+":s",S);renderSide();start()};
 function renderSide(){
  $("sets").innerHTML=SETS.map(st=>{const l=items.filter(it=>it.sets.includes(st.id)&&(S.kind==="a"||it.kind===S.kind));const d=l.filter(it=>status(it)===1).length;const on=S.sets.includes(st.id);return`<button class="set" data-id="${st.id}" aria-pressed="${on}"><span class="box">${on?"✓":""}</span><span>${st.name}</span><small>${hanMode()&&NOHAN.includes(st.id)?"한자 제외":d+"/"+l.length}</small></button>`}).join("");
- seg("kind",[["w","단어"],["s","문장"],["a","전부"]],S.kind,v=>setS("kind",v));
+ seg("kind",[["w","단어"],["s","문장"],["a","전부"]],S.kind,v=>{S.chunk=0;setS("kind",v)});
  seg("pool",[["all","전체"],["todo","못 외운 것"],["miss","틀린 것"]],S.pool,v=>setS("pool",v));
+ seg("csize",[["0","나누지 않기"],["10","10개씩"],["15","15개씩"],["20","20개씩"]],String(+S.csize||0),v=>{S.chunk=0;setS("csize",+v)});
+ const c=chunks(),ce=$("chunks");if(!(S.chunk<c.length))S.chunk=0;ce.hidden=c.length<2;let at=0;
+ ce.innerHTML=c.map((g,i)=>{const a=at+1;at+=g.length;const d=g.filter(it=>status(it)===1).length;return`<button class="chunk${d===g.length?" done":""}" data-i="${i}" aria-pressed="${i===S.chunk}"><span>${a}–${at}</span><small>${d}/${g.length}</small></button>`}).join("");
 }
-$("sets").onclick=e=>{const b=e.target.closest(".set");if(!b)return;const id=b.dataset.id,on=S.sets.includes(id);if(on&&S.sets.length===1)return;S.sets=on?S.sets.filter(x=>x!==id):[...S.sets,id];wr(LS+":s",S);renderSide();start()};
+$("chunks").onclick=e=>{const b=e.target.closest(".chunk");if(!b)return;S.chunk=+b.dataset.i;wr(LS+":s",S);renderSide();start()};
+$("sets").onclick=e=>{const b=e.target.closest(".set");if(!b)return;const id=b.dataset.id,on=S.sets.includes(id);if(on&&S.sets.length===1)return;S.sets=on?S.sets.filter(x=>x!==id):[...S.sets,id];S.chunk=0;wr(LS+":s",S);renderSide();start()};
 let armed=false;$("reset").onclick=()=>{const b=$("reset");if(!armed){armed=true;b.textContent="정말 지울까요? 한 번 더 누르세요";setTimeout(()=>{armed=false;b.textContent="진도 초기화"},4000);return}armed=false;b.textContent="진도 초기화";P={};saveP();start()};
 function renderHead(){
  const T=[["card","카드"],["quiz","객관식"],["write","병음 쓰기"],["list","목록"]];
@@ -419,9 +433,9 @@ function render(){renderHead();const st=$("stage");
  if(S.mode==="quiz")$("nx")?.focus({preventScroll:true});
 }
 function renderDone(){const n=run.deck.length,ok=run.deck.filter((_,i)=>run.res[i]===true).length,miss=run.deck.filter((_,i)=>run.res[i]===false);
- $("stage").innerHTML=`<div class="face"><div class="lbl">한 바퀴 끝</div><div class="score">${ok} / ${n}</div>${miss.length?`<div class="missed">${miss.slice(0,40).map(it=>`<div><span class="h" lang="zh-Hans">${hasHan(it)?esc(it.h):"–"}</span><span>${tone(it.p)}</span><span>${esc(it.m)}</span></div>`).join("")}</div>`:`<p>전부 맞혔습니다.</p>`}</div><div class="acts">${miss.length?`<button class="btn pri" data-a="again-miss">틀린 ${miss.length}개 다시</button>`:""}<button class="btn" data-a="again">처음부터</button></div>`}
+ $("stage").innerHTML=`<div class="face"><div class="lbl">한 바퀴 끝</div><div class="score">${ok} / ${n}</div>${miss.length?`<div class="missed">${miss.slice(0,40).map(it=>`<div><span class="h" lang="zh-Hans">${hasHan(it)?esc(it.h):"–"}</span><span>${tone(it.p)}</span><span>${esc(it.m)}</span></div>`).join("")}</div>`:`<p>전부 맞혔습니다.</p>`}</div><div class="acts">${miss.length?`<button class="btn pri" data-a="again-miss">틀린 ${miss.length}개 다시</button>`:""}${S.chunk<chunks().length-1?`<button class="btn pri" data-a="nextchunk">다음 구간</button>`:""}<button class="btn" data-a="again">처음부터</button></div>`}
 const hideC=rd(LS+":h",{h:false,p:false,m:false});
-function renderList(){const st=$("stage"),base=items.filter(it=>it.sets.some(s=>S.sets.includes(s))&&(S.kind==="a"||it.kind===S.kind)&&(S.pool==="all"||(S.pool==="todo"&&status(it)!==1)||(S.pool==="miss"&&status(it)===0)));
+function renderList(){const st=$("stage"),base=selected();
  st.innerHTML=`<div class="top"><span id="cnt"></span><span>제목을 누르면 그 열을 가립니다. 가린 칸은 누르면 보입니다.</span></div><div class="tw"><table><thead><tr><th></th>${["h","p","m"].map(f=>`<th><button data-a="col" data-f="${f}">${F[f]}${hideC[f]?" (가림)":""}</button></th>`).join("")}</tr></thead><tbody id="tb"></tbody></table></div>`;
  const strip=s=>parsePy(s).L;
  const draw=()=>{const q=($("q").value||"").trim().toLowerCase();const qp=q.replace(/[^a-zü]/g,"");const l=base.filter(it=>!q||it.h.includes(q)||it.m.includes(q)||(qp&&strip(it.p).includes(qp)));$("cnt").textContent=l.length+"개";
@@ -440,6 +454,7 @@ $("stage").onclick=e=>{const c=e.target.closest("td.cov");if(c){c.classList.remo
  if(a==="pick"&&run.pick===null){const i=+b.dataset.i;run.pick=i;const ok=run.opts[i].key===it.key;run.res[run.i]=ok;mark(it,ok);render()}
  if(a==="next")next();
  if(a==="again")start();
+ if(a==="nextchunk"){S.chunk++;wr(LS+":s",S);renderSide();start()}
  if(a==="again-miss")start(shuffle(run.deck.filter((_,i)=>run.res[i]===false)));
 };
 document.addEventListener("keydown",e=>{if(/INPUT|TEXTAREA/.test(e.target.tagName)||e.metaKey||e.ctrlKey||e.altKey)return;const st=$("stage");if(!run||run.i>=run.deck.length)return;
